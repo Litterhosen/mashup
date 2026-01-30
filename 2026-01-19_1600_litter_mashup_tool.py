@@ -107,7 +107,7 @@ if st.button("Processer links"):
             base, ext = os.path.splitext(downloaded_file)
             if ext.lower() != '.wav':
                 wav_path = os.path.join(tmpdir, unique_name + '.wav')
-                os.system(f'ffmpeg -y -i "{downloaded_file}" "{wav_path}"')
+                os.system(f'ffmpeg -y -i "{downloaded_file}" "{wav_path}")
             else:
                 wav_path = downloaded_file
 
@@ -118,7 +118,7 @@ if st.button("Processer links"):
                 bpm = int(round(tempo))
                 chroma = librosa.feature.chroma_stft(y=y, sr=sr)
                 chroma_mean = np.mean(chroma, axis=1)
-                chroma_labels = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B']
+                chroma_labels = ['C','C#','D','D#','E','F','F#','G','G#','A','A#','B']
                 max_idx = np.argmax(chroma_mean)
                 key = chroma_labels[max_idx]
                 camelot_map = {
