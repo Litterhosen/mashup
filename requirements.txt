@@ -1,0 +1,7 @@
+streamlit
+yt-dlp
+librosa
+numpy
+matplotlib
+ffmpeg-python
+spleeter
