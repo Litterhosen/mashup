@@ -220,6 +220,8 @@ def yt_search(query: str, limit: int = 5) -> List[YTResult]:
 
 def download_youtube_to_mp3_320k(youtube_url: str) -> Tuple[Optional[str], Optional[str], Optional[str], Optional[str], Optional[str]]:
     """Returns (uploader, title, video_id, mp3_path, error_message). Uses fallback clients for common YouTube 403 cases."""
+def download_youtube_to_mp3_320k(youtube_url: str) -> Tuple[Optional[str], Optional[str], Optional[str], Optional[str]]:
+    """Returns (uploader, title, video_id, mp3_path). Uses fallback clients for common YouTube 403 cases."""
     if not YT_DLP_AVAILABLE:
         return None, None, None, None, "yt_dlp er ikke installeret."
 
@@ -269,6 +271,8 @@ def download_youtube_to_mp3_320k(youtube_url: str) -> Tuple[Optional[str], Optio
                 if not os.path.exists(mp3_path):
                     return uploader, title, vid, None, "MP3-fil blev ikke oprettet efter download."
                 return uploader, title, vid, mp3_path, None
+                    return uploader, title, vid, None
+                return uploader, title, vid, mp3_path
         except Exception as e:
             last_error = e
             logging.warning(f"Download attempt failed ({extra or 'default'}): {e}")
@@ -276,6 +280,8 @@ def download_youtube_to_mp3_320k(youtube_url: str) -> Tuple[Optional[str], Optio
     final_msg = f"{type(last_error).__name__}: {last_error}" if last_error else "Ukendt downloadfejl."
     logging.error(f"Download failed after fallbacks: {final_msg}")
     return None, None, None, None, final_msg
+    logging.error(f"Download failed after fallbacks: {last_error}")
+    return None, None, None, None
 
 
 # -------------------------
@@ -504,6 +510,7 @@ def process_links_batch(
             if not mp3_path:
                 detail = err or "Download fejlede (mp3 ikke fundet)."
                 st.error(f"Download fejlede: {detail}")
+                st.error("Download fejlede (mp3 ikke fundet). Hvis du ser HTTP 403, prøv opdateret yt-dlp/cookies eller et andet link.")
                 continue
 
             st.success(f"Klar: {title}")
