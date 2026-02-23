@@ -4,4 +4,3 @@ librosa
 numpy
 matplotlib
 ffmpeg-python
-spleeter
