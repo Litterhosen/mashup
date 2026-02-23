@@ -4,7 +4,6 @@
 
 import os
 import re
-import json
 import time
 import shutil
 import logging
@@ -47,9 +46,10 @@ logging.basicConfig(
     format="%(asctime)s %(levelname)s: %(message)s"
 )
 
-DEFAULT_ACAPELLAS_DIR = r"C:\Users\brian\iCloudDrive\01_Organiseret\03_Projekter\Samples\01_Acapellas"
-DEFAULT_INSTRUMENTALS_DIR = r"C:\Users\brian\iCloudDrive\01_Organiseret\03_Projekter\Samples\02_Instrumentals"
-DEFAULT_FULL_SONGS_DIR = r"C:\Users\brian\iCloudDrive\01_Organiseret\03_Projekter\Samples\04_Full_songs"
+DEFAULT_OUTPUT_ROOT = os.path.join(BASE_DIR, "output")
+DEFAULT_ACAPELLAS_DIR = os.path.join(DEFAULT_OUTPUT_ROOT, "acapellas")
+DEFAULT_INSTRUMENTALS_DIR = os.path.join(DEFAULT_OUTPUT_ROOT, "instrumentals")
+DEFAULT_FULL_SONGS_DIR = os.path.join(DEFAULT_OUTPUT_ROOT, "full_songs")
 
 DOWNLOAD_DIR = os.path.join(BASE_DIR, "downloads_tmp")
 SEPARATED_DIR = os.path.join(BASE_DIR, "separated_tmp")
@@ -326,7 +326,7 @@ def ensure_prereqs_ui():
     else:
         st.sidebar.error("demucs: mangler (separation virker ikke)")
 
-    st.sidebar.caption(f"Log: {LOG_PATH}")
+    st.sidebar.caption("Logfil: litter_mashup_hybrid.log")
 
 
 def main():
@@ -361,7 +361,7 @@ def main():
         st.session_state.search_results = []
 
     # Tabs: YouTube search + Upload
-    tab_search, tab_upload = st.tabs(["YouTube (søg + batch links)", "Upload (lokal fil)"])
+    tab_search, tab_upload = st.tabs(["YouTube (søg + batch links)", "Upload lydfil"])
 
     with tab_search:
         st.subheader("1) Søg på YouTube")
@@ -559,7 +559,7 @@ def process_one_file(
         camelot=k["camelot"] if k else None,
         grouping="Full Song"
     )
-    st.success(f"Fuld sang gemt: {full_song_dest}")
+    st.success(f"Fuld sang gemt: {os.path.basename(full_song_dest)}")
 
     # 2) Separate with demucs
     if which("demucs") is None:
@@ -620,7 +620,7 @@ def process_one_file(
     with cols[0]:
         st.markdown("**Acapella**")
         if final_acapella_path and os.path.exists(final_acapella_path):
-            st.caption(final_acapella_path)
+            st.caption(os.path.basename(final_acapella_path))
             b = open_bytes_with_retries(final_acapella_path)
             if b:
                 st.audio(b, format="audio/mpeg")
@@ -637,7 +637,7 @@ def process_one_file(
     with cols[1]:
         st.markdown("**Instrumental**")
         if final_instr_path and os.path.exists(final_instr_path):
-            st.caption(final_instr_path)
+            st.caption(os.path.basename(final_instr_path))
             b = open_bytes_with_retries(final_instr_path)
             if b:
                 st.audio(b, format="audio/mpeg")
