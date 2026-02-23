@@ -226,8 +226,8 @@ def yt_search(query: str, limit: int = 5) -> List[YTResult]:
         logging.error(f"YouTube search failed: {e}")
     return results
 
-def download_youtube_to_mp3_320k(youtube_url: str, cookies_file: Optional[str] = None) -> Tuple[Optional[str], Optional[str], Optional[str], Optional[str], Optional[str]]:
-    """Returns (uploader, title, video_id, mp3_path, error_message). Uses fallback clients for common YouTube 403 cases."""
+def download_youtube_to_mp3_320k(youtube_url: str) -> Tuple[Optional[str], Optional[str], Optional[str], Optional[str]]:
+    """Returns (uploader, title, video_id, mp3_path). Uses fallback clients for common YouTube 403 cases."""
     if not YT_DLP_AVAILABLE:
         return None, None, None, None, "yt_dlp er ikke installeret."
 
@@ -254,37 +254,18 @@ def download_youtube_to_mp3_320k(youtube_url: str, cookies_file: Optional[str] =
         }],
     }
 
-    js_runtime = detect_js_runtime()
-    if js_runtime:
-        common_opts["js_runtimes"] = [js_runtime]
-    else:
-        # Avoid runtime spam when no JS engine is available in hosted env.
-        common_opts["extractor_args"] = {"youtube": {"player_skip": ["js"]}}
-
-    if cookies_file and os.path.isfile(cookies_file):
-        common_opts["cookiefile"] = cookies_file
-
-    # Fallback strategy: prefer web-like clients to avoid PO token warnings from android/ios.
+    # Fallback strategy: different YouTube player clients can bypass some 403 responses.
     attempts = [
+        {"extractor_args": {"youtube": {"player_client": ["android"]}}},
+        {"extractor_args": {"youtube": {"player_client": ["ios"]}}},
         {"extractor_args": {"youtube": {"player_client": ["web"]}}},
-        {"extractor_args": {"youtube": {"player_client": ["mweb"]}}},
-        {"extractor_args": {"youtube": {"player_client": ["tv"]}}},
         {},
     ]
 
     last_error = None
     for extra in attempts:
         ydl_opts = dict(common_opts)
-        base_extractor_args = common_opts.get("extractor_args", {})
-        extra_extractor_args = extra.get("extractor_args", {})
-        if base_extractor_args or extra_extractor_args:
-            merged = {**base_extractor_args}
-            for key, value in extra_extractor_args.items():
-                merged[key] = value
-            ydl_opts["extractor_args"] = merged
-        for key, value in extra.items():
-            if key != "extractor_args":
-                ydl_opts[key] = value
+        ydl_opts.update(extra)
         try:
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 info = ydl.extract_info(youtube_url, download=True)
@@ -294,20 +275,14 @@ def download_youtube_to_mp3_320k(youtube_url: str, cookies_file: Optional[str] =
                 title = info.get("title") or "Unknown"
                 vid = info.get("id") or ""
                 if not os.path.exists(mp3_path):
-                    return uploader, title, vid, None, "MP3-fil blev ikke oprettet efter download."
-                return uploader, title, vid, mp3_path, None
+                    return uploader, title, vid, None
+                return uploader, title, vid, mp3_path
         except Exception as e:
             last_error = e
             logging.warning(f"Download attempt failed ({extra or 'default'}): {e}")
 
-    final_msg = f"{type(last_error).__name__}: {last_error}" if last_error else "Ukendt downloadfejl."
-    lower_msg = final_msg.lower()
-    if "sign in to confirm you’re not a bot" in lower_msg or "sign in to confirm you're not a bot" in lower_msg:
-        final_msg += " | Løsning: angiv YouTube cookies-fil i sidebaren (Netscape format)."
-    elif "http error 403" in lower_msg:
-        final_msg += " | Løsning: prøv cookies-fil eller et andet link/video."
-    logging.error(f"Download failed after fallbacks: {final_msg}")
-    return None, None, None, None, final_msg
+    logging.error(f"Download failed after fallbacks: {last_error}")
+    return None, None, None, None
 
 
 # -------------------------
@@ -543,8 +518,7 @@ def process_links_batch(
                 artist, title, vid, mp3_path, err = download_youtube_to_mp3_320k(url, cookies_file=cookies_file)
 
             if not mp3_path:
-                detail = err or "Download fejlede (mp3 ikke fundet)."
-                st.error(f"Download fejlede: {detail}")
+                st.error("Download fejlede (mp3 ikke fundet). Hvis du ser HTTP 403, prøv opdateret yt-dlp/cookies eller et andet link.")
                 continue
 
             st.success(f"Klar: {title}")
