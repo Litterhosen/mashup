@@ -76,6 +76,14 @@ def which(cmd: str) -> Optional[str]:
     import shutil as _sh
     return _sh.which(cmd)
 
+def detect_js_runtime() -> Optional[str]:
+    """Return first available JS runtime for yt_dlp (node/deno/bun)."""
+    for cmd in ("node", "deno", "bun"):
+        path = which(cmd)
+        if path:
+            return f"{cmd}:{path}"
+    return None
+
 def run_cmd(cmd: List[str], label: str) -> Tuple[bool, str]:
     """Run command and return (ok, message). Captures stdout/stderr for debugging."""
     try:
@@ -221,7 +229,7 @@ def yt_search(query: str, limit: int = 5) -> List[YTResult]:
 def download_youtube_to_mp3_320k(youtube_url: str) -> Tuple[Optional[str], Optional[str], Optional[str], Optional[str]]:
     """Returns (uploader, title, video_id, mp3_path). Uses fallback clients for common YouTube 403 cases."""
     if not YT_DLP_AVAILABLE:
-        return None, None, None, None
+        return None, None, None, None, "yt_dlp er ikke installeret."
 
     safe_mkdirs(DOWNLOAD_DIR)
 
@@ -378,6 +386,10 @@ def main():
     st.sidebar.divider()
     offer_downloads = st.sidebar.checkbox("Vis download-knapper (udover at gemme i mapper)", value=True)
 
+    st.sidebar.subheader("YouTube adgang (valgfri)")
+    cookies_file = st.sidebar.text_input("Cookies-fil (Netscape .txt)", value="")
+    st.sidebar.caption("Bruges hvis YouTube kræver 'Sign in to confirm you’re not a bot'.")
+
     # Session state: link area
     if "link_area" not in st.session_state:
         st.session_state.link_area = ""
@@ -438,7 +450,8 @@ def main():
                     full_songs_dir=full_songs_dir,
                     want_vocals=want_vocals,
                     want_instr=want_instr,
-                    offer_downloads=offer_downloads
+                    offer_downloads=offer_downloads,
+                    cookies_file=cookies_file.strip() or None
                 )
 
     with tab_upload:
@@ -477,7 +490,8 @@ def process_links_batch(
     full_songs_dir: str,
     want_vocals: bool,
     want_instr: bool,
-    offer_downloads: bool
+    offer_downloads: bool,
+    cookies_file: Optional[str] = None
 ) -> None:
     st.divider()
     st.subheader("Batch-kørsel")
@@ -493,12 +507,15 @@ def process_links_batch(
         st.error("yt_dlp mangler. Stopper.")
         return
 
+    if cookies_file and not os.path.isfile(cookies_file):
+        st.warning(f"Cookies-fil ikke fundet: {cookies_file} (fortsætter uden cookies)")
+
     for i, url in enumerate(links, start=1):
         with st.container(border=True):
             st.markdown(f"### {i}/{len(links)}")
             st.write(url)
             with st.spinner("Downloader fra YouTube..."):
-                artist, title, vid, mp3_path = download_youtube_to_mp3_320k(url)
+                artist, title, vid, mp3_path, err = download_youtube_to_mp3_320k(url, cookies_file=cookies_file)
 
             if not mp3_path:
                 st.error("Download fejlede (mp3 ikke fundet). Hvis du ser HTTP 403, prøv opdateret yt-dlp/cookies eller et andet link.")
