@@ -112,6 +112,15 @@ def open_bytes_with_retries(path: str, retries: int = 10, delay: float = 0.25) -
             time.sleep(delay)
     return None
 
+def has_conflict_markers(file_path: str) -> bool:
+    """Detect unresolved git merge markers in a text file."""
+    try:
+        with open(file_path, "r", encoding="utf-8") as f:
+            txt = f.read()
+        return "<<<<<<<" in txt or "=======" in txt or ">>>>>>>" in txt
+    except Exception:
+        return False
+
 
 # -------------------------
 # Music analysis (best-effort)
@@ -400,6 +409,10 @@ def main():
     st.write("YouTube-søgning + batch links + Demucs separation + MP3 320k + metadata + arkivering.")
 
     ensure_prereqs_ui()
+
+    if has_conflict_markers(__file__):
+        st.error("Filen indeholder uløste merge-konflikter (<<<<<<< ======= >>>>>>>). Ret filen før brug.")
+        return
 
     # Output dirs configurable
     st.sidebar.subheader("Output-mapper")
