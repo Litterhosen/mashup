@@ -117,7 +117,10 @@ def has_conflict_markers(file_path: str) -> bool:
     try:
         with open(file_path, "r", encoding="utf-8") as f:
             txt = f.read()
-        return "<<<<<<<" in txt or "=======" in txt or ">>>>>>>" in txt
+        left = "<<<" + "<<<<"
+        mid = "===" + "===="
+        right = ">>>" + ">>>>"
+        return left in txt or mid in txt or right in txt
     except Exception:
         return False
 
@@ -411,7 +414,7 @@ def main():
     ensure_prereqs_ui()
 
     if has_conflict_markers(__file__):
-        st.error("Filen indeholder uløste merge-konflikter (<<<<<<< ======= >>>>>>>). Ret filen før brug.")
+        st.error("Filen indeholder uløste merge-konflikter (git conflict markers). Ret filen før brug.")
         return
 
     # Output dirs configurable
