@@ -76,6 +76,14 @@ def which(cmd: str) -> Optional[str]:
     import shutil as _sh
     return _sh.which(cmd)
 
+def detect_js_runtime() -> Optional[str]:
+    """Return first available JS runtime for yt_dlp (node/deno/bun)."""
+    for cmd in ("node", "deno", "bun"):
+        path = which(cmd)
+        if path:
+            return f"{cmd}:{path}"
+    return None
+
 def run_cmd(cmd: List[str], label: str) -> Tuple[bool, str]:
     """Run command and return (ok, message). Captures stdout/stderr for debugging."""
     try:
@@ -197,12 +205,39 @@ class YTResult:
     url: str
     duration: str
 
+def build_yt_dlp_base_opts(cookies_file: Optional[str] = None) -> Dict:
+    """Common yt-dlp options to reduce noisy warnings and improve reliability."""
+    opts: Dict = {
+        "quiet": True,
+        "no_warnings": True,
+        "noplaylist": True,
+        "retries": 3,
+        "fragment_retries": 3,
+        "http_headers": {
+            "User-Agent": (
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+            )
+        },
+    }
+
+    js_runtime = detect_js_runtime()
+    if js_runtime:
+        opts["js_runtimes"] = [js_runtime]
+    else:
+        opts["extractor_args"] = {"youtube": {"player_skip": ["js"]}}
+
+    if cookies_file and os.path.isfile(cookies_file):
+        opts["cookiefile"] = cookies_file
+
+    return opts
+
 def yt_search(query: str, limit: int = 5) -> List[YTResult]:
     results: List[YTResult] = []
     if not YT_DLP_AVAILABLE:
         return results
 
-    ydl_opts = {"quiet": True}
+    ydl_opts = build_yt_dlp_base_opts()
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(f"ytsearch{limit}:{query}", download=False)
@@ -218,39 +253,69 @@ def yt_search(query: str, limit: int = 5) -> List[YTResult]:
         logging.error(f"YouTube search failed: {e}")
     return results
 
-def download_youtube_to_mp3_320k(youtube_url: str) -> Tuple[Optional[str], Optional[str], Optional[str], Optional[str]]:
-    """Returns (uploader, title, video_id, mp3_path)"""
+def download_youtube_to_mp3_320k(youtube_url: str, cookies_file: Optional[str] = None) -> Tuple[Optional[str], Optional[str], Optional[str], Optional[str], Optional[str]]:
+    """Returns (uploader, title, video_id, mp3_path, error_message). Uses fallback clients for common YouTube 403 cases."""
     if not YT_DLP_AVAILABLE:
-        return None, None, None, None
+        return None, None, None, None, "yt_dlp er ikke installeret."
 
     safe_mkdirs(DOWNLOAD_DIR)
 
     # yt_dlp uses ffmpeg for postprocessing
-    ydl_opts = {
+    common_opts = build_yt_dlp_base_opts(cookies_file=cookies_file)
+    common_opts.update({
         "format": "bestaudio/best",
         "outtmpl": os.path.join(DOWNLOAD_DIR, "%(title)s [%(id)s].%(ext)s"),
-        "quiet": True,
         "postprocessors": [{
             "key": "FFmpegExtractAudio",
             "preferredcodec": "mp3",
             "preferredquality": "320"
         }],
-    }
+    })
 
-    try:
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(youtube_url, download=True)
-            raw = ydl.prepare_filename(info)
-            mp3_path = os.path.splitext(raw)[0] + ".mp3"
-            uploader = info.get("uploader") or info.get("channel") or "Unknown"
-            title = info.get("title") or "Unknown"
-            vid = info.get("id") or ""
-            if not os.path.exists(mp3_path):
-                return uploader, title, vid, None
-            return uploader, title, vid, mp3_path
-    except Exception as e:
-        logging.error(f"Download failed: {e}")
-        return None, None, None, None
+    # Fallback strategy: prefer web-like clients to avoid PO token warnings from android/ios.
+    attempts = [
+        {"extractor_args": {"youtube": {"player_client": ["web"]}}},
+        {"extractor_args": {"youtube": {"player_client": ["mweb"]}}},
+        {"extractor_args": {"youtube": {"player_client": ["tv"]}}},
+        {},
+    ]
+
+    last_error = None
+    for extra in attempts:
+        ydl_opts = dict(common_opts)
+        base_extractor_args = common_opts.get("extractor_args", {})
+        extra_extractor_args = extra.get("extractor_args", {})
+        if base_extractor_args or extra_extractor_args:
+            merged = {**base_extractor_args}
+            for key, value in extra_extractor_args.items():
+                merged[key] = value
+            ydl_opts["extractor_args"] = merged
+        for key, value in extra.items():
+            if key != "extractor_args":
+                ydl_opts[key] = value
+        try:
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                info = ydl.extract_info(youtube_url, download=True)
+                raw = ydl.prepare_filename(info)
+                mp3_path = os.path.splitext(raw)[0] + ".mp3"
+                uploader = info.get("uploader") or info.get("channel") or "Unknown"
+                title = info.get("title") or "Unknown"
+                vid = info.get("id") or ""
+                if not os.path.exists(mp3_path):
+                    return uploader, title, vid, None, "MP3-fil blev ikke oprettet efter download."
+                return uploader, title, vid, mp3_path, None
+        except Exception as e:
+            last_error = e
+            logging.warning(f"Download attempt failed ({extra or 'default'}): {e}")
+
+    final_msg = f"{type(last_error).__name__}: {last_error}" if last_error else "Ukendt downloadfejl."
+    lower_msg = final_msg.lower()
+    if "sign in to confirm you’re not a bot" in lower_msg or "sign in to confirm you're not a bot" in lower_msg:
+        final_msg += " | Løsning: angiv YouTube cookies-fil i sidebaren (Netscape format)."
+    elif "http error 403" in lower_msg:
+        final_msg += " | Løsning: prøv cookies-fil eller et andet link/video."
+    logging.error(f"Download failed after fallbacks: {final_msg}")
+    return None, None, None, None, final_msg
 
 
 # -------------------------
@@ -354,6 +419,10 @@ def main():
     st.sidebar.divider()
     offer_downloads = st.sidebar.checkbox("Vis download-knapper (udover at gemme i mapper)", value=True)
 
+    st.sidebar.subheader("YouTube adgang (valgfri)")
+    cookies_file = st.sidebar.text_input("Cookies-fil (Netscape .txt)", value="")
+    st.sidebar.caption("Bruges hvis YouTube kræver 'Sign in to confirm you’re not a bot'.")
+
     # Session state: link area
     if "link_area" not in st.session_state:
         st.session_state.link_area = ""
@@ -414,7 +483,8 @@ def main():
                     full_songs_dir=full_songs_dir,
                     want_vocals=want_vocals,
                     want_instr=want_instr,
-                    offer_downloads=offer_downloads
+                    offer_downloads=offer_downloads,
+                    cookies_file=cookies_file.strip() or None
                 )
 
     with tab_upload:
@@ -453,7 +523,8 @@ def process_links_batch(
     full_songs_dir: str,
     want_vocals: bool,
     want_instr: bool,
-    offer_downloads: bool
+    offer_downloads: bool,
+    cookies_file: Optional[str] = None
 ) -> None:
     st.divider()
     st.subheader("Batch-kørsel")
@@ -469,15 +540,19 @@ def process_links_batch(
         st.error("yt_dlp mangler. Stopper.")
         return
 
+    if cookies_file and not os.path.isfile(cookies_file):
+        st.warning(f"Cookies-fil ikke fundet: {cookies_file} (fortsætter uden cookies)")
+
     for i, url in enumerate(links, start=1):
         with st.container(border=True):
             st.markdown(f"### {i}/{len(links)}")
             st.write(url)
             with st.spinner("Downloader fra YouTube..."):
-                artist, title, vid, mp3_path = download_youtube_to_mp3_320k(url)
+                artist, title, vid, mp3_path, err = download_youtube_to_mp3_320k(url, cookies_file)
 
             if not mp3_path:
-                st.error("Download fejlede (mp3 ikke fundet).")
+                detail = err or "Download fejlede (mp3 ikke fundet)."
+                st.error(f"Download fejlede: {detail}")
                 continue
 
             st.success(f"Klar: {title}")
